@@ -1,6 +1,7 @@
 package com.leonardobishop.quests.bukkit.hook.versionspecific;
 
 import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Horse;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -23,13 +24,48 @@ public class VersionSpecificHandler8 implements VersionSpecificHandler {
     }
 
     @Override
+    public boolean isPlayerOnCamel(Player player) {
+        return false;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public boolean isPlayerOnDonkey(Player player) {
+        return player.getVehicle() instanceof Horse horse && horse.getVariant() == Horse.Variant.DONKEY;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public boolean isPlayerOnHorse(Player player) {
+        return player.getVehicle() instanceof Horse horse && horse.getVariant() == Horse.Variant.HORSE;
+    }
+
+    @Override
+    public boolean isPlayerOnLlama(Player player) {
+        return false;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public boolean isPlayerOnMule(Player player) {
+        return player.getVehicle() instanceof Horse horse && horse.getVariant() == Horse.Variant.MULE;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public boolean isPlayerOnSkeletonHorse(Player player) {
+        return player.getVehicle() instanceof Horse horse && horse.getVariant() == Horse.Variant.SKELETON_HORSE;
+    }
+
+    @Override
     public boolean isPlayerOnStrider(Player player) {
         return false;
     }
 
+    @SuppressWarnings("deprecation")
     @Override
-    public boolean isPlayerOnHorse(Player player) {
-        return player.getVehicle() instanceof Horse;
+    public boolean isPlayerOnZombieHorse(Player player) {
+        return player.getVehicle() instanceof Horse horse && horse.getVariant() == Horse.Variant.UNDEAD_HORSE;
     }
 
     @Override
@@ -86,5 +122,10 @@ public class VersionSpecificHandler8 implements VersionSpecificHandler {
     @Override
     public String getSmithMode(SmithItemEvent event) {
         return null;
+    }
+
+    @Override
+    public boolean isGoat(Entity entity) {
+        return false;
     }
 }

@@ -8,6 +8,7 @@ import com.leonardobishop.quests.bukkit.tasktype.BukkitTaskType;
 import com.leonardobishop.quests.bukkit.util.chat.Chat;
 import com.leonardobishop.quests.bukkit.util.constraint.TaskConstraint;
 import com.leonardobishop.quests.bukkit.util.constraint.TaskConstraintSet;
+import com.leonardobishop.quests.bukkit.util.lang3.StringUtils;
 import com.leonardobishop.quests.common.config.ConfigProblem;
 import com.leonardobishop.quests.common.config.ConfigProblemDescriptions;
 import com.leonardobishop.quests.common.player.QPlayer;
@@ -25,12 +26,16 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.material.Colorable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -150,7 +155,9 @@ public class TaskUtils {
         return progress;
     }
 
-	public static void sendTrackAdvancement(Player player, Quest quest, Task task, TaskProgress taskProgress, Number amount) {
+	public static void sendTrackAdvancement(Player player, Quest quest, Task task, PendingTask pendingTask, Number amount) {
+        TaskProgress taskProgress = pendingTask.taskProgress();
+
         boolean useActionBar = plugin.getConfig().getBoolean("options.actionbar.progress", false)
                 || (taskProgress.isCompleted() && plugin.getConfig().getBoolean("options.actionbar.complete", false));
         boolean useBossBar = plugin.getConfig().getBoolean("options.bossbar.progress", false)
@@ -164,6 +171,11 @@ public class TaskUtils {
         titleSearch:
         {
             title = quest.getProgressPlaceholders().get(task.getId()); // custom title
+            if (title != null) {
+                break titleSearch;
+            }
+
+            title = quest.getProgressPlaceholders().get(task.getType()); // one title for all tasks of the same type
             if (title != null) {
                 break titleSearch;
             }
@@ -186,7 +198,8 @@ public class TaskUtils {
             return; // no valid title format found
         }
 
-        title = QItemStack.processPlaceholders(title, taskProgress);
+        QuestProgress questProgress = pendingTask.questProgress();
+        title = QItemStack.processPlaceholders(title, questProgress, taskProgress);
 
         boolean usePlaceholderAPI = plugin.getQuestsConfig().getBoolean("options.progress-use-placeholderapi", false);
         if (usePlaceholderAPI) {
@@ -291,7 +304,8 @@ public class TaskUtils {
         Object configData = task.getConfigValue("data");
 
         Material blockMaterial = state.getType();
-        byte blockData = state.getRawData();
+        // do not set block data here as it will initialize Legacy Material Support
+        Byte blockData = null;
 
         Material material;
         int comparableData;
@@ -310,11 +324,25 @@ public class TaskUtils {
 
             type.debug("Checking against block " + material + ":" + comparableData, pendingTask.quest.getId(), task.getId(), player);
 
-            if (material == blockMaterial && ((parts.length == 1 && configData == null) || blockData == comparableData)) {
-                type.debug("Block match", pendingTask.quest.getId(), task.getId(), player);
-                return true;
+            if (material == blockMaterial) {
+                if (parts.length == 1 && configData == null) {
+                    type.debug("Block match (modern)", pendingTask.quest.getId(), task.getId(), player);
+                    return true;
+                }
+
+                // delay legacy material support initialization
+                if (blockData == null) {
+                    blockData = state.getRawData();
+                }
+
+                if (blockData == comparableData) {
+                    type.debug("Block match (legacy)", pendingTask.quest.getId(), task.getId(), player);
+                    return true;
+                }
+
+                type.debug("Block mismatch (legacy)", pendingTask.quest.getId(), task.getId(), player);
             } else {
-                type.debug("Block mismatch", pendingTask.quest.getId(), task.getId(), player);
+                type.debug("Block mismatch (modern)", pendingTask.quest.getId(), task.getId(), player);
             }
         }
 
@@ -364,6 +392,14 @@ public class TaskUtils {
     }
 
     public static boolean matchEntity(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @NotNull Entity entity, @NotNull UUID player, @NotNull String stringKey, @NotNull String listKey) {
+        return matchEntity(type, pendingTask, entity.getType(), player, stringKey, listKey);
+    }
+
+    public static boolean matchEntity(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @NotNull EntityType entityType, @NotNull UUID player) {
+        return matchEntity(type, pendingTask, entityType, player, "mob", "mobs");
+    }
+
+    public static boolean matchEntity(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @NotNull EntityType entityType, @NotNull UUID player, @NotNull String stringKey, @NotNull String listKey) {
         Task task = pendingTask.task;
 
         List<String> checkMobs = TaskUtils.getConfigStringList(task, task.getConfigValues().containsKey(stringKey) ? stringKey : listKey);
@@ -372,8 +408,6 @@ public class TaskUtils {
         } else if (checkMobs.isEmpty()) {
             return false;
         }
-
-        EntityType entityType = entity.getType();
 
         EntityType mob;
 
@@ -393,7 +427,87 @@ public class TaskUtils {
         return false;
     }
 
-    public static boolean matchString(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @Nullable String string, @NotNull UUID player, final @NotNull String stringKey, final @NotNull String listKey, boolean legacyColor, boolean ignoreCase) {
+    private static Method getEntitySpawnReasonMethod;
+
+    static {
+        try {
+            getEntitySpawnReasonMethod = Entity.class.getMethod("getEntitySpawnReason");
+        } catch (NoSuchMethodException ignored) {
+            // server version cannot support the method (doesn't work on Spigot)
+        }
+    }
+
+    public static boolean matchSpawnReason(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @NotNull Entity entity, @NotNull UUID player) {
+        return matchSpawnReason(type, pendingTask, entity, player, "spawn-reason", "spawn-reasons");
+    }
+
+    public static boolean matchSpawnReason(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @NotNull Entity entity, @NotNull UUID player, @NotNull String stringKey, @NotNull String listKey) {
+        Task task = pendingTask.task;
+
+        List<String> checkSpawnReasons = TaskUtils.getConfigStringList(task, task.getConfigValues().containsKey(stringKey) ? stringKey : listKey);
+        if (checkSpawnReasons == null) {
+            return true;
+        } else if (checkSpawnReasons.isEmpty()) {
+            return false;
+        }
+
+        if (getEntitySpawnReasonMethod == null) {
+            type.debug("Spawn reason is specified but the server software doesn't have the method necessary to get it", pendingTask.quest.getId(), task.getId(), player);
+
+            // it is supported only on Paper so we simply ignore it
+            return true;
+        }
+
+        CreatureSpawnEvent.SpawnReason spawnReason;
+        try {
+            spawnReason = (CreatureSpawnEvent.SpawnReason) getEntitySpawnReasonMethod.invoke(entity);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            // it should never happen
+            return false;
+        }
+
+        CreatureSpawnEvent.SpawnReason reason;
+
+        for (String spawnReasonName : checkSpawnReasons) {
+            reason = CreatureSpawnEvent.SpawnReason.valueOf(spawnReasonName);
+
+            type.debug("Checking against spawn reason " + reason, pendingTask.quest.getId(), task.getId(), player);
+
+            if (reason == spawnReason) {
+                type.debug("Spawn reason match", pendingTask.quest.getId(), task.getId(), player);
+                return true;
+            } else {
+                type.debug("Spawn reason mismatch", pendingTask.quest.getId(), task.getId(), player);
+            }
+        }
+
+        return false;
+    }
+
+    public enum StringMatchMode {
+        EQUALS {
+            @Override
+            public boolean matches(@NotNull String str1, @NotNull String str2, boolean ignoreCase) {
+                return StringUtils.equals(str1, str2, ignoreCase);
+            }
+        },
+        STARTS_WITH {
+            @Override
+            public boolean matches(@NotNull String str, @NotNull String prefix, boolean ignoreCase) {
+                return StringUtils.startsWith(str, prefix, ignoreCase);
+            }
+        },
+        ENDS_WITH {
+            @Override
+            public boolean matches(@NotNull String str, @NotNull String suffix, boolean ignoreCase) {
+                return StringUtils.endsWith(str, suffix, ignoreCase);
+            }
+        };
+
+        public abstract boolean matches(@NotNull String str1, @NotNull String str2, boolean ignoreCase);
+    }
+
+    public static boolean matchString(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @Nullable String string, @NotNull UUID player, @NotNull String stringKey, @NotNull String listKey, boolean legacyColor, @NotNull String matchModeKey, boolean ignoreCase) {
         Task task = pendingTask.task;
 
         List<String> checkNames = TaskUtils.getConfigStringList(task, task.getConfigValues().containsKey(stringKey) ? stringKey : listKey);
@@ -411,15 +525,73 @@ public class TaskUtils {
             string = Chat.legacyColor(string);
         }
 
+        StringMatchMode matchMode;
+
+        String matchModeString = (String) task.getConfigValue(matchModeKey);
+        if (matchModeString != null) {
+            matchMode = StringMatchMode.valueOf(matchModeString);
+        } else {
+            matchMode = StringMatchMode.EQUALS;
+        }
+
+        type.debug("Utilising " + matchMode + " mode for checking", pendingTask.quest.getId(), task.getId(), player);
+
         for (String name : checkNames) {
             type.debug("Checking against name " + string, pendingTask.quest.getId(), task.getId(), player);
 
-            if (StringUtils.equals(string, name, ignoreCase)) {
+            if (matchMode.matches(string, name, ignoreCase)) {
                 type.debug("Name match", pendingTask.quest.getId(), task.getId(), player);
                 return true;
             } else {
                 type.debug("Name mismatch", pendingTask.quest.getId(), task.getId(), player);
             }
+        }
+
+        return false;
+    }
+
+    public static boolean matchAnyString(@NotNull BukkitTaskType type, @NotNull PendingTask pendingTask, @NotNull String @Nullable [] strings, @NotNull UUID player, final @NotNull String stringKey, final @NotNull String listKey, boolean legacyColor, @NotNull String matchModeKey, boolean ignoreCase) {
+        Task task = pendingTask.task;
+
+        List<String> checkNames = TaskUtils.getConfigStringList(task, task.getConfigValues().containsKey(stringKey) ? stringKey : listKey);
+        if (checkNames == null) {
+            return true;
+        } else if (checkNames.isEmpty()) {
+            return strings == null || strings.length == 0;
+        }
+
+        if (strings == null || strings.length == 0) {
+            return false;
+        }
+
+        if (legacyColor) {
+            for (int i = 0; i < strings.length; i++) {
+                strings[i] = Chat.legacyColor(strings[i]);
+            }
+        }
+
+        StringMatchMode matchMode;
+
+        String matchModeString = (String) task.getConfigValue(matchModeKey);
+        if (matchModeString != null) {
+            matchMode = StringMatchMode.valueOf(matchModeString);
+        } else {
+            matchMode = StringMatchMode.EQUALS;
+        }
+
+        type.debug("Utilising " + matchMode + " mode for checking", pendingTask.quest.getId(), task.getId(), player);
+
+        for (String name : checkNames) {
+            type.debug("Checking against name " + name, pendingTask.quest.getId(), task.getId(), player);
+
+            for (String string : strings) {
+                if (matchMode.matches(string, name, ignoreCase)) {
+                    type.debug("Name match", pendingTask.quest.getId(), task.getId(), player);
+                    return true;
+                }
+            }
+
+            type.debug("Name mismatch", pendingTask.quest.getId(), task.getId(), player);
         }
 
         return false;
@@ -774,8 +946,56 @@ public class TaskUtils {
                         EntityType.valueOf(entity);
                     } catch (IllegalArgumentException ex) {
                         problems.add(new ConfigProblem(ConfigProblem.ConfigProblemType.WARNING,
-                                ConfigProblemDescriptions.UNKNOWN_MATERIAL.getDescription(entity),
-                                ConfigProblemDescriptions.UNKNOWN_MATERIAL.getExtendedDescription(entity),
+                                ConfigProblemDescriptions.UNKNOWN_ENTITY_TYPE.getDescription(entity),
+                                ConfigProblemDescriptions.UNKNOWN_ENTITY_TYPE.getExtendedDescription(entity),
+                                path));
+                    }
+                }
+                break;
+            }
+        };
+    }
+
+    /**
+     * Returns a config validator which checks if at least one value in the given
+     * paths is a valid list of spawn reasons.
+     * <p>
+     * The list of entities is expected to be in the format of:
+     * <pre>key: "SPAWN_REASON"</pre>
+     * where SPAWN_REASON is the name of an entity. Alternatively, the list
+     * of entities can be in the format of:
+     * <pre>key:
+     *   - "SPAWN_REASON"
+     *   - "..."</pre>
+     * </p>
+     *
+     * @param paths a list of valid paths for task
+     * @return config validator
+     */
+    public static TaskType.ConfigValidator useSpawnReasonListConfigValidator(TaskType type, String... paths) {
+        return (config, problems) -> {
+            for (String path : paths) {
+                Object configObject = config.get(path);
+
+                List<String> checkSpawnReasons = new ArrayList<>();
+                if (configObject instanceof List<?> configList) {
+                    for (Object object : configList) {
+                        checkSpawnReasons.add(String.valueOf(object));
+                    }
+                } else {
+                    if (configObject == null) {
+                        continue;
+                    }
+                    checkSpawnReasons.add(String.valueOf(configObject));
+                }
+
+                for (String spawnReason : checkSpawnReasons) {
+                    try {
+                        CreatureSpawnEvent.SpawnReason.valueOf(spawnReason);
+                    } catch (IllegalArgumentException ex) {
+                        problems.add(new ConfigProblem(ConfigProblem.ConfigProblemType.WARNING,
+                                ConfigProblemDescriptions.UNKNOWN_SPAWN_REASON.getDescription(spawnReason),
+                                ConfigProblemDescriptions.UNKNOWN_SPAWN_REASON.getExtendedDescription(spawnReason),
                                 path));
                     }
                 }
@@ -828,6 +1048,27 @@ public class TaskUtils {
                 break;
             }
         };
+    }
+
+    /**
+     * Returns a config validator which checks if at least one value in the given
+     * paths is present in the enum.
+     *
+     * Should be used for small enums only as it lists possible values in config
+     * problem extended description.
+     *
+     * @param clazz the enum class
+     * @param paths a list of valid paths for task
+     * @return config validator
+     */
+    public static <T extends Enum<T>> TaskType.ConfigValidator useEnumConfigValidator(TaskType type, Class<T> clazz, String... paths) {
+        List<String> acceptedValues = new ArrayList<>();
+        T[] constants = clazz.getEnumConstants();
+        for (T constant : constants) {
+            String acceptedValue = constant.name();
+            acceptedValues.add(acceptedValue);
+        }
+        return useAcceptedValuesConfigValidator(type, acceptedValues, paths);
     }
 
     /**

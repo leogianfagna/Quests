@@ -33,11 +33,17 @@ public final class SmithingTaskType extends BukkitTaskType {
 
         super.addConfigValidator(TaskUtils.useRequiredConfigValidator(this, "amount"));
         super.addConfigValidator(TaskUtils.useIntegerConfigValidator(this, "amount"));
-        super.addConfigValidator(TaskUtils.useRequiredConfigValidator(this, "item"));
         super.addConfigValidator(TaskUtils.useItemStackConfigValidator(this, "item"));
         super.addConfigValidator(TaskUtils.useIntegerConfigValidator(this, "data"));
         super.addConfigValidator(TaskUtils.useBooleanConfigValidator(this, "exact-match"));
+
+        if (plugin.getVersionSpecificHandler().getMinecraftVersion() < 20) {
+            return;
+        }
+
+        super.addConfigValidator(TaskUtils.useRequiredConfigValidator(this, "mode"));
         super.addConfigValidator(TaskUtils.useAcceptedValuesConfigValidator(this, Arrays.asList(
+                "any", // for clarity reasons we want the user to specify the mode on 1.20+
                 "transform",
                 "trim"
         ), "mode"));
@@ -86,27 +92,31 @@ public final class SmithingTaskType extends BukkitTaskType {
             Task task = pendingTask.task();
             TaskProgress taskProgress = pendingTask.taskProgress();
 
+            // null on versions lower than 1.20
             if (recipeType != null) {
-                final String mode = (String) task.getConfigValue("mode");
-                if (!recipeType.equals(mode)) {
+                String mode = (String) task.getConfigValue("mode");
+
+                if (!recipeType.equals(mode) && !"any".equals(mode)) {
                     super.debug("Specific mode is required, but the actual mode '" + recipeType + "' does not match, continuing...", quest.getId(), task.getId(), player.getUniqueId());
                     continue;
                 }
             }
 
-            QuestItem qi;
-            if ((qi = fixedQuestItemCache.get(quest.getId(), task.getId())) == null) {
-                QuestItem fetchedItem = TaskUtils.getConfigQuestItem(task, "item", "data");
-                fixedQuestItemCache.put(quest.getId(), task.getId(), fetchedItem);
-                qi = fetchedItem;
-            }
+            if (task.hasConfigKey("item")) {
+                QuestItem qi;
+                if ((qi = fixedQuestItemCache.get(quest.getId(), task.getId())) == null) {
+                    QuestItem fetchedItem = TaskUtils.getConfigQuestItem(task, "item", "data");
+                    fixedQuestItemCache.put(quest.getId(), task.getId(), fetchedItem);
+                    qi = fetchedItem;
+                }
 
-            super.debug("Player smithed " + eventAmount + " of " + item.getType(), quest.getId(), task.getId(), player.getUniqueId());
+                super.debug("Player smithed " + eventAmount + " of " + item.getType(), quest.getId(), task.getId(), player.getUniqueId());
 
-            boolean exactMatch = TaskUtils.getConfigBoolean(task, "exact-match", true);
-            if (!qi.compareItemStack(item, exactMatch)) {
-                super.debug("Item does not match, continuing...", quest.getId(), task.getId(), player.getUniqueId());
-                continue;
+                boolean exactMatch = TaskUtils.getConfigBoolean(task, "exact-match", true);
+                if (!qi.compareItemStack(item, exactMatch)) {
+                    super.debug("Item does not match, continuing...", quest.getId(), task.getId(), player.getUniqueId());
+                    continue;
+                }
             }
 
             int progress = TaskUtils.incrementIntegerTaskProgress(taskProgress, eventAmount);
@@ -120,7 +130,7 @@ public final class SmithingTaskType extends BukkitTaskType {
                 taskProgress.setCompleted(true);
             }
 
-            TaskUtils.sendTrackAdvancement(player, quest, task, taskProgress, amount);
+            TaskUtils.sendTrackAdvancement(player, quest, task, pendingTask, amount);
         }
     }
 

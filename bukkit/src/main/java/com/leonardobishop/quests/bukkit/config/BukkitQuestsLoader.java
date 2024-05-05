@@ -11,7 +11,7 @@ import com.leonardobishop.quests.bukkit.item.QuestItemRegistry;
 import com.leonardobishop.quests.bukkit.item.SlimefunQuestItem;
 import com.leonardobishop.quests.bukkit.menu.itemstack.QItemStack;
 import com.leonardobishop.quests.bukkit.menu.itemstack.QItemStackRegistry;
-import com.leonardobishop.quests.bukkit.util.StringUtils;
+import com.leonardobishop.quests.bukkit.util.lang3.StringUtils;
 import com.leonardobishop.quests.bukkit.util.chat.Chat;
 import com.leonardobishop.quests.common.config.ConfigProblem;
 import com.leonardobishop.quests.common.config.ConfigProblemDescriptions;
@@ -269,6 +269,7 @@ public class BukkitQuestsLoader implements QuestsLoader {
                         List<String> startString = config.getStringList("startstring");
                         List<String> startCommands = config.getStringList("startcommands");
                         List<String> cancelCommands = config.getStringList("cancelcommands");
+                        List<String> expiryCommands = config.getStringList("expirycommands");
                         boolean repeatable = config.getBoolean("options.repeatable", false);
                         boolean cooldown = config.getBoolean("options.cooldown.enabled", false);
                         boolean timeLimit = config.getBoolean("options.time-limit.enabled", false);
@@ -300,6 +301,7 @@ public class BukkitQuestsLoader implements QuestsLoader {
                                 .withStartString(startString)
                                 .withStartCommands(startCommands)
                                 .withCancelCommands(cancelCommands)
+                                .withExpiryCommands(expiryCommands)
                                 .withPlaceholders(placeholders)
                                 .withProgressPlaceholders(progressPlaceholders)
                                 .withCooldown(cooldownTime)
@@ -368,6 +370,7 @@ public class BukkitQuestsLoader implements QuestsLoader {
                         if (config.isConfigurationSection("progress-placeholders")) {
                             for (String p : config.getConfigurationSection("progress-placeholders").getKeys(false)) {
                                 progressPlaceholders.put(p, config.getString("progress-placeholders." + p));
+                                findInvalidTaskReferences(quest, config.getString("progress-placeholders." + p), problems, "placeholders." + p, true);
                             }
                         }
                         questManager.registerQuest(quest);
@@ -511,24 +514,38 @@ public class BukkitQuestsLoader implements QuestsLoader {
         questsLogger.info(questItemRegistry.getAllItems().size() + " quest items have been registered.");
     }
 
-    private void findInvalidTaskReferences(Quest quest, String s, List<ConfigProblem> configProblems, String location) {
-        Pattern pattern = Pattern.compile("\\{([^}]+)}");
+    private static final Pattern taskPlaceholderPattern = Pattern.compile("\\{([^}]+):(progress|complete|id)}");
 
-        Matcher matcher = pattern.matcher(s);
+    private void findInvalidTaskReferences(Quest quest, String s, List<ConfigProblem> configProblems, String location) {
+        findInvalidTaskReferences(quest, s, configProblems, location, false);
+    }
+
+    private void findInvalidTaskReferences(Quest quest, String s, List<ConfigProblem> configProblems, String location, boolean allowByThis) {
+        Matcher matcher = taskPlaceholderPattern.matcher(s);
+
         while (matcher.find()) {
-            String[] parts = matcher.group(1).split(":");
+            String taskIdPart = matcher.group(1);
+            if (allowByThis && taskIdPart.equals("this")) {
+                continue;
+            }
+
             boolean match = false;
-            for (Task t : quest.getTasks()) {
-                if (t.getId().equals(parts[0])) {
+            for (Task task : quest.getTasks()) {
+                String taskId = task.getId();
+                if (taskId.equals(taskIdPart)) {
                     match = true;
                     break;
                 }
             }
-            if (!match)
-                configProblems.add(new ConfigProblem(ConfigProblem.ConfigProblemType.WARNING,
-                        ConfigProblemDescriptions.UNKNOWN_TASK_REFERENCE.getDescription(parts[0]),
-                        ConfigProblemDescriptions.UNKNOWN_TASK_REFERENCE.getExtendedDescription(parts[0]),
-                        location));
+
+            if (match) {
+                continue;
+            }
+
+            configProblems.add(new ConfigProblem(ConfigProblem.ConfigProblemType.WARNING,
+                    ConfigProblemDescriptions.UNKNOWN_TASK_REFERENCE.getDescription(taskIdPart),
+                    ConfigProblemDescriptions.UNKNOWN_TASK_REFERENCE.getExtendedDescription(taskIdPart),
+                    location));
         }
     }
 

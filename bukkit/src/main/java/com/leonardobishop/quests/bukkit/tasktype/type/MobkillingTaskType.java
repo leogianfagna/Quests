@@ -34,16 +34,21 @@ public final class MobkillingTaskType extends BukkitTaskType {
         super.addConfigValidator(TaskUtils.useRequiredConfigValidator(this, "amount"));
         super.addConfigValidator(TaskUtils.useIntegerConfigValidator(this, "amount"));
         super.addConfigValidator(TaskUtils.useEntityListConfigValidator(this, "mob", "mobs"));
+        super.addConfigValidator(TaskUtils.useSpawnReasonListConfigValidator(this, "spawn-reason", "spawn-reasons"));
         super.addConfigValidator(TaskUtils.useBooleanConfigValidator(this, "hostile"));
         super.addConfigValidator(TaskUtils.useItemStackConfigValidator(this, "item"));
         super.addConfigValidator(TaskUtils.useIntegerConfigValidator(this, "data"));
         super.addConfigValidator(TaskUtils.useBooleanConfigValidator(this, "exact-match"));
+        super.addConfigValidator(TaskUtils.useEnumConfigValidator(this, TaskUtils.StringMatchMode.class, "name-match-mode"));
 
-        try {
-            Class.forName("com.bgsoftware.wildstacker.api.events.EntityUnstackEvent");
-            plugin.getServer().getPluginManager().registerEvents(new MobkillingTaskType.EntityUnstackListener(), plugin);
-            return;
-        } catch (ClassNotFoundException ignored) { } // there is no entity unstack available so we use EntityDeathEvent instead
+        if (plugin.getQuestsConfig().getBoolean("options.mobkilling-use-wildstacker-hook", true)) {
+            try {
+                Class.forName("com.bgsoftware.wildstacker.api.events.EntityUnstackEvent");
+                plugin.getServer().getPluginManager().registerEvents(new MobkillingTaskType.EntityUnstackListener(), plugin);
+                return;
+            } catch (ClassNotFoundException ignored) {
+            } // there is no entity unstack available so we use EntityDeathEvent instead
+        }
 
         plugin.getServer().getPluginManager().registerEvents(new MobkillingTaskType.EntityDeathListener(), plugin);
     }
@@ -97,7 +102,7 @@ public final class MobkillingTaskType extends BukkitTaskType {
         }
 
         //noinspection deprecation
-        final String customName = entity.getCustomName();
+        String customName = entity.getCustomName();
 
         for (TaskUtils.PendingTask pendingTask : TaskUtils.getApplicableTasks(player, qPlayer, this, TaskConstraintSet.ALL)) {
             Quest quest = pendingTask.quest();
@@ -123,7 +128,12 @@ public final class MobkillingTaskType extends BukkitTaskType {
                 continue;
             }
 
-            if (!TaskUtils.matchString(this, pendingTask, customName, player.getUniqueId(), "name", "names", true, false)) {
+            if (!TaskUtils.matchSpawnReason(this, pendingTask, entity, player.getUniqueId())) {
+                super.debug("Continuing...", quest.getId(), task.getId(), player.getUniqueId());
+                continue;
+            }
+
+            if (!TaskUtils.matchString(this, pendingTask, customName, player.getUniqueId(), "name", "names", true, "name-match-mode", false)) {
                 super.debug("Continuing...", quest.getId(), task.getId(), player.getUniqueId());
                 continue;
             }
@@ -163,7 +173,7 @@ public final class MobkillingTaskType extends BukkitTaskType {
                 taskProgress.setCompleted(true);
             }
 
-            TaskUtils.sendTrackAdvancement(player, quest, task, taskProgress, amount);
+            TaskUtils.sendTrackAdvancement(player, quest, task, pendingTask, amount);
         }
     }
 }

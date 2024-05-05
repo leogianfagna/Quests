@@ -22,7 +22,7 @@ import java.util.concurrent.CompletableFuture;
 public final class PlaceholderAPIEvaluateTaskType extends BukkitTaskType {
 
     private final BukkitQuestsPlugin plugin;
-    private final WeakHashMap<Task, Integer> refreshTicksMap = new WeakHashMap<>();
+    private final WeakHashMap<Player, WeakHashMap<Task, Integer>> refreshTicksMap = new WeakHashMap<>();
     private WrappedTask poll;
 
     public PlaceholderAPIEvaluateTaskType(BukkitQuestsPlugin plugin) {
@@ -89,7 +89,9 @@ public final class PlaceholderAPIEvaluateTaskType extends BukkitTaskType {
             Integer refreshTicks = (Integer) task.getConfigValue("refresh-ticks");
             if (refreshTicks != null) {
                 int currentTick = Bukkit.getCurrentTick();
-                Integer lastRefreshTicks = refreshTicksMap.get(task);
+
+                WeakHashMap<Task, Integer> playerRefreshTicksMap = refreshTicksMap.computeIfAbsent(player, k -> new WeakHashMap<>());
+                Integer lastRefreshTicks = playerRefreshTicksMap.get(task);
 
                 if (lastRefreshTicks != null) {
                     int ticksSinceLastRefresh = currentTick - lastRefreshTicks;
@@ -100,7 +102,7 @@ public final class PlaceholderAPIEvaluateTaskType extends BukkitTaskType {
                     }
                 }
 
-                refreshTicksMap.put(task, currentTick);
+                playerRefreshTicksMap.put(task, currentTick);
             }
 
             String placeholder = (String) task.getConfigValue("placeholder");
@@ -159,7 +161,7 @@ public final class PlaceholderAPIEvaluateTaskType extends BukkitTaskType {
                     }
 
                     // Do not send track advancement for this task type as it behaves really weird
-                    //TaskUtils.sendTrackAdvancement(player, quest, task, taskProgress, evaluates);
+                    //TaskUtils.sendTrackAdvancement(player, quest, task, pendingTask, evaluates);
                 } else if (evaluatedString.equals(evaluatesString)) {
                     super.debug("Marking task as complete", quest.getId(), task.getId(), player.getUniqueId());
                     taskProgress.setCompleted(true);

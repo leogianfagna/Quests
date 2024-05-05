@@ -10,6 +10,8 @@ import com.leonardobishop.quests.bukkit.hook.actionbar.QuestsActionBar;
 import com.leonardobishop.quests.bukkit.hook.bossbar.BossBar_Bukkit;
 import com.leonardobishop.quests.bukkit.hook.bossbar.BossBar_Nothing;
 import com.leonardobishop.quests.bukkit.hook.bossbar.QuestsBossBar;
+import com.leonardobishop.quests.bukkit.hook.cmi.AbstractCMIHook;
+import com.leonardobishop.quests.bukkit.hook.cmi.CMIHook;
 import com.leonardobishop.quests.bukkit.hook.coreprotect.AbstractCoreProtectHook;
 import com.leonardobishop.quests.bukkit.hook.coreprotect.CoreProtectHook;
 import com.leonardobishop.quests.bukkit.hook.essentials.AbstractEssentialsHook;
@@ -65,6 +67,7 @@ import com.leonardobishop.quests.bukkit.tasktype.type.BucketEmptyTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.BucketFillTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.BuildingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.CommandTaskType;
+import com.leonardobishop.quests.bukkit.tasktype.type.CompostingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.ConsumeTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.CraftingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.DealDamageTaskType;
@@ -73,6 +76,7 @@ import com.leonardobishop.quests.bukkit.tasktype.type.EnchantingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.ExpEarnTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.FarmingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.FishingTaskType;
+import com.leonardobishop.quests.bukkit.tasktype.type.HatchingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.InteractTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.InventoryTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.MilkingTaskType;
@@ -93,6 +97,7 @@ import com.leonardobishop.quests.bukkit.tasktype.type.dependent.ASkyBlockLevelTa
 import com.leonardobishop.quests.bukkit.tasktype.type.dependent.BentoBoxLevelTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.dependent.CitizensDeliverTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.dependent.CitizensInteractTaskType;
+import com.leonardobishop.quests.bukkit.tasktype.type.dependent.CustomFishingFishingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.dependent.EcoBossesKillingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.dependent.EcoMobsKillingTaskType;
 import com.leonardobishop.quests.bukkit.tasktype.type.dependent.EssentialsBalanceTaskType;
@@ -137,9 +142,6 @@ import net.md_5.bungee.api.chat.BaseComponent;
 import org.bstats.bukkit.MetricsLite;
 import org.bukkit.Bukkit;
 import org.bukkit.block.Block;
-import org.bukkit.boss.BarColor;
-import org.bukkit.boss.BarFlag;
-import org.bukkit.boss.BarStyle;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -181,6 +183,7 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
     private QuestItemRegistry questItemRegistry;
     private MenuController menuController;
     private AbstractPlaceholderAPIHook placeholderAPIHook;
+    private AbstractCMIHook cmiHook;
     private AbstractCoreProtectHook coreProtectHook;
     private AbstractEssentialsHook essentialsHook;
     private AbstractPlayerBlockTrackerHook playerBlockTrackerHook;
@@ -376,6 +379,10 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
                 this.placeholderAPIProcessor = (player, s) -> placeholderAPIHook.replacePlaceholders(player, s);
             }
 
+            if (CompatUtils.isPluginEnabled("CMI")) {
+                this.cmiHook = new CMIHook();
+            }
+
             if (CompatUtils.isPluginEnabled("CoreProtect")) {
                 this.coreProtectHook = new CoreProtectHook(this);
             }
@@ -427,17 +434,20 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
             taskTypeManager.registerTaskType(new WalkingTaskType(this));
 
             // Register task types with class/method compatibility requirement
-            taskTypeManager.registerTaskType(() -> new BrewingTaskType(this), () -> CompatUtils.classWithMethodExists("org.bukkit.event.inventory.BrewEvent", "getResults"));
-            taskTypeManager.registerTaskType(() -> new SmithingTaskType(this), () -> CompatUtils.classExists("org.bukkit.event.inventory.SmithItemEvent"));
-            taskTypeManager.registerTaskType(() -> new FarmingTaskType(this), () -> CompatUtils.classExists("org.bukkit.block.data.Ageable"));
-            taskTypeManager.registerTaskType(() -> new BlockshearingTaskType(this), () -> CompatUtils.classExists("io.papermc.paper.event.block.PlayerShearBlockEvent"));
-            taskTypeManager.registerTaskType(() -> new ReplenishingTaskType(this), () -> CompatUtils.classExists("com.destroystokyo.paper.loottable.LootableInventoryReplenishEvent"));
             taskTypeManager.registerTaskType(() -> new BlockItemdroppingTaskType(this), () -> CompatUtils.classExists("org.bukkit.event.block.BlockDropItemEvent"));
+            taskTypeManager.registerTaskType(() -> new BlockshearingTaskType(this), () -> CompatUtils.classExists("io.papermc.paper.event.block.PlayerShearBlockEvent"));
+            taskTypeManager.registerTaskType(() -> new BrewingTaskType(this), () -> CompatUtils.classWithMethodExists("org.bukkit.event.inventory.BrewEvent", "getResults"));
+            taskTypeManager.registerTaskType(() -> new CompostingTaskType(this), () -> CompatUtils.classExists("io.papermc.paper.event.entity.EntityCompostItemEvent"));
+            taskTypeManager.registerTaskType(() -> new FarmingTaskType(this), () -> CompatUtils.classExists("org.bukkit.block.data.Ageable"));
+            taskTypeManager.registerTaskType(() -> new HatchingTaskType(this), () -> CompatUtils.classExists("com.destroystokyo.paper.event.entity.ThrownEggHatchEvent"));
+            taskTypeManager.registerTaskType(() -> new ReplenishingTaskType(this), () -> CompatUtils.classExists("com.destroystokyo.paper.loottable.LootableInventoryReplenishEvent"));
+            taskTypeManager.registerTaskType(() -> new SmithingTaskType(this), () -> CompatUtils.classExists("org.bukkit.event.inventory.SmithItemEvent"));
 
             // Register task types with enabled plugin compatibility requirement
             taskTypeManager.registerTaskType(() -> new ASkyBlockLevelTaskType(this), () -> CompatUtils.isPluginEnabled("ASkyBlock"));
             taskTypeManager.registerTaskType(() -> new CitizensDeliverTaskType(this), () -> CompatUtils.isPluginEnabled("Citizens"));
             taskTypeManager.registerTaskType(() -> new CitizensInteractTaskType(this), () -> CompatUtils.isPluginEnabled("Citizens"));
+            taskTypeManager.registerTaskType(() -> new CustomFishingFishingTaskType(this), () -> CompatUtils.isPluginEnabled("CustomFishing"));
             taskTypeManager.registerTaskType(() -> new EcoBossesKillingTaskType(this), () -> CompatUtils.isPluginEnabled("EcoBosses"));
             taskTypeManager.registerTaskType(() -> new EcoMobsKillingTaskType(this), () -> CompatUtils.isPluginEnabled("EcoMobs"));
             taskTypeManager.registerTaskType(() -> new EssentialsBalanceTaskType(this), () -> CompatUtils.isPluginEnabled("Essentials"));
@@ -676,16 +686,15 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
 
     private void setBossBarHandle() {
         try {
-            Bukkit.class.getMethod("createBossBar", String.class, BarColor.class, BarStyle.class, BarFlag[].class);
+            Bukkit.class.getMethod("createBossBar", String.class, Class.forName("org.bukkit.boss.BarColor"), Class.forName("org.bukkit.boss.BarStyle"), Class.forName("[Lorg.bukkit.boss.BarFlag;"));
             bossBarHandle = new BossBar_Bukkit(this);
             return;
-        } catch (NoSuchMethodException ignored) {
+        } catch (ClassNotFoundException | NoSuchMethodException ignored) {
         }
 
         bossBarHandle = new BossBar_Nothing();
     }
 
-    @SuppressWarnings("deprecation")
     private void setActionBarHandle() {
         try {
             Player.class.getMethod("sendActionBar", String.class);
@@ -695,10 +704,10 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
         }
 
         try {
-            Player.Spigot.class.getMethod("sendMessage", ChatMessageType.class, BaseComponent.class);
+            Class.forName("org.bukkit.entity.Player.Spigot").getMethod("sendMessage", ChatMessageType.class, BaseComponent.class);
             actionBarHandle = new ActionBar_Spigot();
             return;
-        } catch (NoSuchMethodException ignored) {
+        } catch (ClassNotFoundException | NoSuchMethodException ignored) {
         }
 
         actionBarHandle = new ActionBar_Nothing();
@@ -728,7 +737,7 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
             return;
         }
 
-        if (CompatUtils.classWithMethodExists("org.bukkit.craftbukkit.{}.inventory.CraftMetaSkull", "setProfile", GameProfile.class)) {
+        if (CompatUtils.classWithMethodExists("{}.inventory.CraftMetaSkull", "setProfile", GameProfile.class)) {
             // Spigot 1.18.1+
             if (CompatUtils.classExists("org.bukkit.profile.PlayerProfile")) {
                 skullGetter = new ModernSkullGetter(this);
@@ -758,6 +767,10 @@ public class BukkitQuestsPlugin extends JavaPlugin implements Quests {
 
     public @Nullable AbstractPlaceholderAPIHook getPlaceholderAPIHook() {
         return placeholderAPIHook;
+    }
+
+    public @Nullable AbstractCMIHook getCMIHook() {
+        return cmiHook;
     }
 
     public @Nullable AbstractCoreProtectHook getCoreProtectHook() {
