@@ -5,6 +5,7 @@ import com.leonardobishop.quests.bukkit.hook.itemgetter.ItemGetter;
 import com.leonardobishop.quests.bukkit.item.ExecutableItemsQuestItem;
 import com.leonardobishop.quests.bukkit.item.ItemsAdderQuestItem;
 import com.leonardobishop.quests.bukkit.item.MMOItemsQuestItem;
+import com.leonardobishop.quests.bukkit.item.OraxenQuestItem;
 import com.leonardobishop.quests.bukkit.item.ParsedQuestItem;
 import com.leonardobishop.quests.bukkit.item.QuestItem;
 import com.leonardobishop.quests.bukkit.item.QuestItemRegistry;
@@ -43,8 +44,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -222,7 +225,7 @@ public class BukkitQuestsLoader implements QuestsLoader {
                                     configValues.put(key, config.get(taskRoot + "." + key));
                                 }
 
-                                List<ConfigProblem> taskProblems = new ArrayList<>();
+                                Set<ConfigProblem> taskProblems = new HashSet<>();
                                 for (TaskType.ConfigValidator validator : t.getConfigValidators()) {
                                     validator.validateConfig(configValues, taskProblems);
                                 }
@@ -267,6 +270,8 @@ public class BukkitQuestsLoader implements QuestsLoader {
                         List<String> requirements = config.getStringList("options.requires");
                         List<String> rewardString = config.getStringList("rewardstring");
                         List<String> startString = config.getStringList("startstring");
+                        List<String> cancelString = config.getStringList("cancelstring");
+                        List<String> expiryString = config.getStringList("expirystring");
                         List<String> startCommands = config.getStringList("startcommands");
                         List<String> cancelCommands = config.getStringList("cancelcommands");
                         List<String> expiryCommands = config.getStringList("expirycommands");
@@ -299,6 +304,8 @@ public class BukkitQuestsLoader implements QuestsLoader {
                                 .withRequirements(requirements)
                                 .withRewardString(rewardString)
                                 .withStartString(startString)
+                                .withCancelString(cancelString)
+                                .withExpiryString(expiryString)
                                 .withStartCommands(startCommands)
                                 .withCancelCommands(cancelCommands)
                                 .withExpiryCommands(expiryCommands)
@@ -376,7 +383,7 @@ public class BukkitQuestsLoader implements QuestsLoader {
                         questManager.registerQuest(quest);
                         taskTypeManager.registerQuestTasksWithTaskTypes(quest);
                         qItemStackRegistry.register(quest, displayItem);
-                        if (config.isConfigurationSection("options.started-display")) {
+                        if (config.isConfigurationSection("options.locked-display")) {
                             qItemStackRegistry.registerQuestLocked(quest,
                                     plugin.getItemGetter().getItem("options.locked-display", config));
                         }
@@ -492,6 +499,10 @@ public class BukkitQuestsLoader implements QuestsLoader {
                         case "itemsadder":
                             if (!Bukkit.getPluginManager().isPluginEnabled("ItemsAdder")) return FileVisitResult.CONTINUE;
                             item = new ItemsAdderQuestItem(id, config.getString("item.id"));
+                            break;
+                        case "oraxen":
+                            if (!Bukkit.getPluginManager().isPluginEnabled("Oraxen")) return FileVisitResult.CONTINUE;
+                            item = new OraxenQuestItem(id, config.getString("item.id"));
                             break;
                     }
 

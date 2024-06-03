@@ -8,17 +8,12 @@ import org.bukkit.event.player.PlayerBucketFillEvent;
 
 public final class BucketFillTaskType extends BucketInteractionTaskType {
 
-    private final BukkitQuestsPlugin plugin;
-
     public BucketFillTaskType(BukkitQuestsPlugin plugin) {
-        super("bucketfill", TaskUtils.TASK_ATTRIBUTION_STRING, "Fill a specific bucket.");
-        this.plugin = plugin;
+        super(plugin, "bucketfill", TaskUtils.TASK_ATTRIBUTION_STRING, "Fill a specific bucket.");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onBucketFill(PlayerBucketFillEvent event) {
-        if (event.getItemStack() == null) return;
-
-        super.onBucket(event.getPlayer(), event.getItemStack().getType(), plugin);
+    public void onPlayerBucketFill(PlayerBucketFillEvent event) {
+        handle(event.getPlayer(), event.getItemStack());
     }
 }
